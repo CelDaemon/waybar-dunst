@@ -2,5 +2,6 @@
 
 : "${PREFIX:=/usr/local}"
 
+install -Dm644 LICENSE "$PREFIX/share/licenses/waybar-dunst/LICENSE"
 install -Dm644 waybar-dunst.example.jsonc "$PREFIX/share/waybar-dunst/waybar-dunst.example.jsonc"
 install -Dm755 waybar-dunst "$PREFIX/lib/waybar-dunst/waybar-dunst"
