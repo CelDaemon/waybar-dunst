@@ -1,0 +1,51 @@
+#!/usr/bin/env -S python -u
+
+from json import dumps
+from sys import stdout
+from dbus_fast.aio import MessageBus
+from asyncio import run, Event
+
+PAUSED = {
+    'text': "\uf1f6", // 
+    'tooltip': 'Paused',
+    'class': 'paused'
+}
+
+UNPAUSED = {
+    'tooltip': 'Unpaused',
+    'class': 'unpaused'
+}
+
+paused = False
+
+def changed_notify(interface, changed, invalidated):
+    if interface != 'org.dunstproject.cmd0' or 'paused' not in changed:
+        return
+    new_paused = changed['paused'].value
+    global paused
+    if new_paused == paused:
+        return
+    paused = new_paused
+    print_paused()
+
+def print_paused():
+    print(dumps(PAUSED if paused else UNPAUSED))
+
+async def main():
+    bus = await MessageBus().connect()
+
+    introspection = await bus.introspect('org.freedesktop.Notifications', '/org/freedesktop/Notifications')
+
+    notifications = bus.get_proxy_object('org.freedesktop.Notifications', '/org/freedesktop/Notifications', introspection)
+
+    properties = notifications.get_interface('org.freedesktop.DBus.Properties')
+    dunst = notifications.get_interface('org.dunstproject.cmd0')
+    
+    properties.on_properties_changed(changed_notify)
+
+    global paused
+    paused = await dunst.get_paused()
+    print_paused()
+    
+    await Event().wait()
+run(main())
