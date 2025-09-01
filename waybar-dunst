@@ -6,7 +6,7 @@ from dbus_fast.aio import MessageBus
 from asyncio import run, Event
 
 PAUSED = {
-    'text': "\uf1f6", // 
+    'text': "\uf1f6", # 
     'tooltip': 'Paused',
     'class': 'paused'
 }
