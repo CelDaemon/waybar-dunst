@@ -1,0 +1,8 @@
+{
+    "custom/dunst": {
+        "return-type": "json",
+        "format": "{text}",
+        "exec": "/usr/local/lib/waybar-dunst/waybar-dunst",
+        "on-click": "dunstctl set-paused toggle"
+    }
+}
