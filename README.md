@@ -7,7 +7,32 @@ This project is a module for waybar with integration for dunst, adding a status 
 
 # Installation
 
-For installation, simply run the `install.sh` script in the root of the repository.
+## Package
+
+> [!IMPORTANT]
+> Always ensure the `PKGBUILD` and any other files used during the packaging and/or install process are trusted and safe.
+>
+> Furthermore, this project has no build step, hence no `-bin` package will be made available.
+> If an AUR package with the name `waybar-dunst-bin` is created, it is not official and should likely not be trusted.
+
+For installation using a package manager on Arch, an [AUR package](https://aur.archlinux.org/packages/waybar-dunst) is available.
+
+To install it, simply use your AUR helper of choice, for example with `yay`:
+
+```sh
+yay -S waybar-dunst
+```
+
+Then, follow the printed instructions to setup your configuration.
+
+> [!NOTE]
+> While no packages for other distributions are currently available, these may be created upon user request.
+> Any requested distribution must have some form of the `python-dbus-fast` package available through the primary package manager.
+
+
+## Manual
+
+For manual installation, simply run the `install.sh` script in the root of the repository.
 
 Secondly, add the following to your waybar configuration:
 
