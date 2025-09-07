@@ -1,51 +1,78 @@
 #!/usr/bin/env -S python -u
 
-from json import dumps
-from sys import stdout
-from dbus_fast.aio import MessageBus
+from json import dumps, load
+from pathlib import Path
+from os import environ
 from asyncio import run, Event
 
-PAUSED = {
-    'text': "\uf1f6", # 
-    'tooltip': 'Paused',
-    'class': 'paused'
-}
-
-UNPAUSED = {
-    'tooltip': 'Unpaused',
-    'class': 'unpaused'
-}
+from dbus_fast.aio import MessageBus
 
 paused = False
+config = {}
 
-def changed_notify(interface, changed, invalidated):
-    if interface != 'org.dunstproject.cmd0' or 'paused' not in changed:
-        return
-    new_paused = changed['paused'].value
+def resolve_config():
+    if 'XDG_CONFIG_HOME' in environ:
+        config_home = Path(environ['XDG_CONFIG_HOME'])
+    else:
+        config_home = Path.home() / '.config'
+
+    if (config_path := config_home / 'waybar' / 'dunst-config.json').exists():
+        return config_path
+
+def changed_notify(interface, changed, _invalidated):
     global paused
-    if new_paused == paused:
+    if (interface != 'org.dunstproject.cmd0' or 'paused' not in changed or
+        (new_paused := changed['paused'].value) == paused):
         return
     paused = new_paused
-    print_paused()
+    update_module()
 
-def print_paused():
-    print(dumps(PAUSED if paused else UNPAUSED))
+def update_module():
+    global config
+
+    fallback_format = config.get('format', None)
+    fallback_tooltip_format = config.get('tooltip-format', None)
+
+    state = 'paused' if paused else 'unpaused'
+
+    state_format = config.get(f'format-{state}', fallback_format)
+    state_tooltip_format = config.get(f'tooltip-format-{state}', fallback_tooltip_format)
+
+    data = {
+        'text': state_format,
+        'tooltip': state_tooltip_format,
+        'class': state
+    }
+
+    print(dumps(data))
 
 async def main():
+    global config
+    if config_path := resolve_config():
+        with open(config_path, encoding='utf-8') as config_file:
+            config = load(config_file)
+
+    config.setdefault('format-paused', '\uf1f6') # 
+    config.setdefault('tooltip-format-paused', 'Paused')
+
     bus = await MessageBus().connect()
 
-    introspection = await bus.introspect('org.freedesktop.Notifications', '/org/freedesktop/Notifications')
+    introspection = await bus.introspect('org.freedesktop.Notifications',
+                                         '/org/freedesktop/Notifications')
 
-    notifications = bus.get_proxy_object('org.freedesktop.Notifications', '/org/freedesktop/Notifications', introspection)
+    notifications = bus.get_proxy_object('org.freedesktop.Notifications',
+                                         '/org/freedesktop/Notifications', introspection)
 
     properties = notifications.get_interface('org.freedesktop.DBus.Properties')
     dunst = notifications.get_interface('org.dunstproject.cmd0')
-    
+
     properties.on_properties_changed(changed_notify)
 
     global paused
     paused = await dunst.get_paused()
-    print_paused()
-    
+
+    update_module()
+
     await Event().wait()
+
 run(main())
