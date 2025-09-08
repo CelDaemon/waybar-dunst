@@ -4,9 +4,25 @@ from json import dumps, load
 from pathlib import Path
 from os import environ
 from asyncio import run, Event
+from typing import cast, TYPE_CHECKING
+from collections.abc import Awaitable
+
 
 from dbus_fast.aio import MessageBus
 from dbus_fast.proxy_object import BaseProxyInterface, BaseProxyObject
+
+if TYPE_CHECKING:
+    from typing import type_check_only
+
+    @type_check_only
+    class PropertiesProxyInterface(BaseProxyInterface):
+        def on_properties_changed(self, _) -> None: ...
+
+    @type_check_only
+    class DunstProxyInterface(BaseProxyInterface):
+        async def get_paused(self) -> bool: ...
+
+        async def get_waiting_length(self) -> int: ...
 
 _paused = False
 _waiting_length = 0
@@ -46,18 +62,17 @@ def changed_notify(interface, changed, _):
 
     update_module()
 
-def update_module():
+
+def update_module() -> None:
     default_format = _config.get('format')
-    default_waiting_format = _config.get('format-waiting')
+    waiting_format = _config.get('format-waiting')
     default_tooltip_format = _config.get('tooltip-format')
-    default_tooltip_waiting_format = _config.get('tooltip-format-waiting')
+    tooltip_waiting_format = _config.get('tooltip-format-waiting')
 
     state = 'paused' if _paused else 'unpaused'
 
     state_format = _config.get(f'format-{state}', default_format)
-    state_waiting_format = _config.get(f'format-waiting-{state}', default_waiting_format)
     state_tooltip_format = _config.get(f'tooltip-format-{state}', default_tooltip_format)
-    state_tooltip_waiting_format = _config.get(f'tooltip-format-waiting-{state}', default_tooltip_waiting_format)
 
     if _waiting_length > 9:
         waiting_length = '9+'
@@ -72,12 +87,12 @@ def update_module():
     waiting_format_output = ''
     tooltip_waiting_format_output = ''
 
-    if _waiting_length != 0 and state_waiting_format is not None:
-        if state_waiting_format is not None:
-            waiting_format_output = state_waiting_format.format(**data)
+    if _waiting_length != 0 and waiting_format is not None:
+        if waiting_format is not None:
+            waiting_format_output = waiting_format.format(**data)
 
-        if state_tooltip_waiting_format is not None:
-            tooltip_waiting_format_output = state_tooltip_waiting_format.format(**data)
+        if tooltip_waiting_format is not None:
+            tooltip_waiting_format_output = tooltip_waiting_format.format(**data)
 
     data['format_waiting'] = waiting_format_output
     data['tooltip_format_waiting'] = tooltip_waiting_format_output
@@ -100,7 +115,7 @@ def update_module():
 
     print(dumps(data))
 
-async def main():
+async def main() -> None:
     global _config, _paused, _waiting_length
     if config_path := resolve_config():
         with open(config_path, encoding='utf-8') as config_file:
@@ -120,8 +135,8 @@ async def main():
     notifications: BaseProxyObject = bus.get_proxy_object('org.freedesktop.Notifications',
                                          '/org/freedesktop/Notifications', introspection)
 
-    properties: BaseProxyInterface = notifications.get_interface('org.freedesktop.DBus.Properties')
-    dunst: BaseProxyInterface = notifications.get_interface('org.dunstproject.cmd0')
+    properties = cast('PropertiesProxyInterface', notifications.get_interface('org.freedesktop.DBus.Properties'))
+    dunst = cast('DunstProxyInterface', notifications.get_interface('org.dunstproject.cmd0'))
 
     properties.on_properties_changed(changed_notify)
 
