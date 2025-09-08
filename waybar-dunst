@@ -117,10 +117,6 @@ async def main():
     introspection = await bus.introspect('org.freedesktop.Notifications',
                                          '/org/freedesktop/Notifications')
 
-    from sys import stderr
-
-    print(introspection.tostring(), file=stderr)
-
     notifications: BaseProxyObject = bus.get_proxy_object('org.freedesktop.Notifications',
                                          '/org/freedesktop/Notifications', introspection)
 
