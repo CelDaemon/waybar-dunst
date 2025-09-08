@@ -4,9 +4,7 @@ from json import dumps, load
 from pathlib import Path
 from os import environ
 from asyncio import run, Event
-from typing import cast, TYPE_CHECKING
-from collections.abc import Awaitable
-
+from typing import cast, TYPE_CHECKING, TypeVar
 
 from dbus_fast.aio import MessageBus
 from dbus_fast.proxy_object import BaseProxyInterface, BaseProxyObject
@@ -24,22 +22,63 @@ if TYPE_CHECKING:
 
         async def get_waiting_length(self) -> int: ...
 
-_paused = False
-_waiting_length = 0
-_config = {}
-
 def resolve_config():
     if 'XDG_CONFIG_HOME' in environ:
         config_home = Path(environ['XDG_CONFIG_HOME'])
     else:
         config_home = Path.home() / '.config'
 
-    if (config_path := config_home / 'waybar' / 'dunst-config.json').exists():
+    config_path = config_home / 'waybar' / 'dunst-config.json'
+
+    if config_path.exists():
         return config_path
 
-def changed_notify(interface, changed, _):
-    global _paused, _waiting_length
+class Config(dict):
+    T = TypeVar('T')
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setdefault('format-paused', '\uf1f6{format_waiting}') # 
+        self.setdefault('format-waiting', ' {waiting_length}')
+
+        self.setdefault('tooltip-format-paused', 'Paused{tooltip_format_waiting}')
+        self.setdefault('tooltip-format-waiting', ', {waiting_length} pending notification(s)')
+        self.setdefault('tooltip-format-waiting-empty', ', no pending notifications')
+
+    @staticmethod
+    def load() -> 'Config':
+        config_path = resolve_config()
+
+        if config_path is None:
+            return Config()
+
+        with open(config_path, encoding='utf-8') as config_file:
+            return Config(load(config_file))
+
+    def get_typed(self, key, typ: type[T], default: T = None) -> T:
+        value = self.get(key, default)
+
+        if not isinstance(value, typ):
+            raise TypeError(f'Property "{key}" is not of type {typ.__name__}')
+
+        return value
+
+    def get_string(self, key, default = '') -> str:
+        return self.get_typed(key, str, default)
+
+class State:
+    paused: bool
+    waiting_length: int
+
+    def __init__(self):
+        self.paused = False
+        self.waiting_length = 0
+
+_state = State()
+_config = Config.load()
+
+
+def changed_notify(interface, changed, _):
     if interface != 'org.dunstproject.cmd0':
         return
 
@@ -47,14 +86,16 @@ def changed_notify(interface, changed, _):
 
     if 'paused' in changed:
         new_paused = changed['paused'].value
-        if new_paused != _paused:
-            _paused = new_paused
+
+        if new_paused != _state.paused:
+            _state.paused = new_paused
             has_changed = True
 
     if 'waitingLength' in changed:
         new_waiting_length = changed['waitingLength'].value
-        if new_waiting_length != _waiting_length:
-            _waiting_length = new_waiting_length
+
+        if new_waiting_length != _state.waiting_length:
+            _state.waiting_length = new_waiting_length
             has_changed = True
 
     if not has_changed:
@@ -63,49 +104,39 @@ def changed_notify(interface, changed, _):
     update_module()
 
 
+def build_waiting_part(prefix: str | None, data: dict[str, str]) -> str:
+    prefix = f'{prefix}-' if prefix else ''
+
+    if _state.waiting_length == 0:
+        return (_config.get_string(f'{prefix}format-waiting-empty')
+                                .format(**data))
+
+    return (_config.get_string(f'{prefix}format-waiting')
+            .format(**data))
+
 def update_module() -> None:
-    default_format = _config.get('format')
-    waiting_format = _config.get('format-waiting')
-    default_tooltip_format = _config.get('tooltip-format')
-    tooltip_waiting_format = _config.get('tooltip-format-waiting')
+    data = {}
+    state = 'paused' if _state.paused else 'unpaused'
 
-    state = 'paused' if _paused else 'unpaused'
+    default_format = _config.get_string('format')
+    default_tooltip_format = _config.get_string('tooltip-format')
 
-    state_format = _config.get(f'format-{state}', default_format)
-    state_tooltip_format = _config.get(f'tooltip-format-{state}', default_tooltip_format)
+    state_format = _config.get_string(f'format-{state}', default_format)
+    state_tooltip_format = _config.get_string(f'tooltip-format-{state}', default_tooltip_format)
 
-    if _waiting_length > 9:
-        waiting_length = '9+'
+    waiting_length_max = _config.get_typed('waiting-length-max', int, 9)
+
+    if _state.waiting_length > waiting_length_max:
+        data['waiting_length'] = f'{waiting_length_max}+'
     else:
-        waiting_length = str(_waiting_length)
+        data['waiting_length'] = str(_state.waiting_length)
 
-    data = {
-        'state': state,
-        'waiting_length': waiting_length,
-    }
 
-    waiting_format_output = ''
-    tooltip_waiting_format_output = ''
+    data['format_waiting'] = build_waiting_part(None, data)
+    data['tooltip_format_waiting'] = build_waiting_part('tooltip', data)
 
-    if _waiting_length != 0 and waiting_format is not None:
-        if waiting_format is not None:
-            waiting_format_output = waiting_format.format(**data)
-
-        if tooltip_waiting_format is not None:
-            tooltip_waiting_format_output = tooltip_waiting_format.format(**data)
-
-    data['format_waiting'] = waiting_format_output
-    data['tooltip_format_waiting'] = tooltip_waiting_format_output
-
-    if state_format is not None:
-        text = state_format.format(**data)
-    else:
-        text = None
-
-    if state_tooltip_format is not None:
-        tooltip = state_tooltip_format.format(**data)
-    else:
-        tooltip = None
+    text = state_format.format(**data)
+    tooltip = state_tooltip_format.format(**data)
 
     data = {
         'text': text,
@@ -116,17 +147,6 @@ def update_module() -> None:
     print(dumps(data))
 
 async def main() -> None:
-    global _config, _paused, _waiting_length
-    if config_path := resolve_config():
-        with open(config_path, encoding='utf-8') as config_file:
-            _config = load(config_file)
-
-    _config.setdefault('format-paused', '\uf1f6{format_waiting}') # 
-    _config.setdefault('format-waiting', ' {waiting_length}')
-
-    _config.setdefault('tooltip-format-paused', 'Paused{tooltip_format_waiting}')
-    _config.setdefault('tooltip-format-waiting', ', {waiting_length} pending notifications')
-
     bus = await MessageBus().connect()
 
     introspection = await bus.introspect('org.freedesktop.Notifications',
@@ -140,8 +160,8 @@ async def main() -> None:
 
     properties.on_properties_changed(changed_notify)
 
-    _paused = await dunst.get_paused()
-    _waiting_length = await dunst.get_waiting_length()
+    _state.paused = await dunst.get_paused()
+    _state.waiting_length = await dunst.get_waiting_length()
 
     update_module()
 
