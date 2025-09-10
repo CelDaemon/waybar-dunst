@@ -47,3 +47,8 @@ Secondly, add the following to your waybar configuration:
 
 Finally, add `custom/dunst` to your module array of choice.
 
+# Rationale
+
+This project was created as an alternative to a simple shell script using `dunstctl`.
+Instead of polling, DBus is used to listen to updates from dunst.
+Preferring this method prevents `dunstctl` from running every iteration, avoiding the performance penalty resulting from spawning processes.
